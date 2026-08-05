@@ -3,13 +3,24 @@ import { STORAGE_KEYS } from '@constants/app';
 import { getStorage, setStorage, removeStorageKeys } from '@utils/storage';
 
 /**
+ * The API base URL is read from the Vite env var at build time.
+ * On Vercel you must add VITE_API_BASE_URL = https://dummyjson.com
+ * in Project → Settings → Environment Variables.
+ *
+ * The hard-coded fallback ensures the app still works in local dev
+ * even if the developer forgets to create a .env file.
+ */
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'https://dummyjson.com';
+
+/**
  * Central Axios instance.
+ * – Every request goes to API_BASE_URL (never the frontend domain).
  * – Attaches the JWT access token to every request.
  * – On 401, attempts a silent token refresh; if that fails, clears
  *   auth state and redirects to /login.
  */
 const httpClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL,
+  baseURL: API_BASE_URL,
   timeout: 15_000,
   headers: { 'Content-Type': 'application/json' },
 });
@@ -61,10 +72,16 @@ httpClient.interceptors.response.use(
         const refreshToken = getStorage(STORAGE_KEYS.REFRESH_TOKEN);
         if (!refreshToken) throw new Error('No refresh token');
 
-        const { data } = await axios.post(
-          `${import.meta.env.VITE_API_BASE_URL}/auth/refresh`,
+        /*
+         * Use the configured httpClient instance — NOT a raw axios call.
+         * A raw axios.post with `import.meta.env.VITE_API_BASE_URL` would
+         * resolve to `undefined/auth/refresh` on Vercel if the env var is
+         * absent, sending the request to the frontend domain instead of the
+         * API server.
+         */
+        const { data } = await httpClient.post(
+          '/auth/refresh',
           { refreshToken },
-          { headers: { 'Content-Type': 'application/json' } }
         );
 
         setStorage(STORAGE_KEYS.AUTH_TOKEN,    data.accessToken);
